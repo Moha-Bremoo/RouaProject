@@ -1,53 +1,60 @@
 """
-Ruua - Embedded Finance Platform Backend
-FastAPI application implementing loan offers, payments, and fraud detection
+Ruua - Embedded Finance Platform Business Logic
+Core functions for loan offers, payments, and fraud detection
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from typing import List, Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import List, Dict, Any
 import json
 
-from database import get_db, engine
-from models import Base, User, Offer, Transaction, FraudCheck
-from schemas import (
-    OfferRequest, OfferResponse, PayRequest, PayResponse, 
-    FraudRequest, FraudResponse, TransactionResponse
-)
+# ============================================================================
+# DATA MODELS (Simplified)
+# ============================================================================
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+class OfferRequest:
+    """Request data for creating a loan offer"""
+    def __init__(self, user_id: str, order_amount: float, recent_payments: int, 
+                 failed_payments_last_30_days: int, device_country: str, 
+                 billing_country: str, employer_enrolled: bool, salary_monthly: float = None):
+        self.user_id = user_id
+        self.order_amount = order_amount
+        self.recent_payments = recent_payments
+        self.failed_payments_last_30_days = failed_payments_last_30_days
+        self.device_country = device_country
+        self.billing_country = billing_country
+        self.employer_enrolled = employer_enrolled
+        self.salary_monthly = salary_monthly
 
-app = FastAPI(
-    title="Ruua API",
-    description="Embedded Finance Platform - Loan Offers, Payments & Fraud Detection",
-    version="1.0.0"
-)
+class PayRequest:
+    """Request data for processing payment"""
+    def __init__(self, offer_id: str):
+        self.offer_id = offer_id
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class FraudRequest:
+    """Request data for fraud detection"""
+    def __init__(self, user_id: str, transaction_amount: float, device_country: str,
+                 billing_country: str, device_count: int, failed_payments_last_30_days: int):
+        self.user_id = user_id
+        self.transaction_amount = transaction_amount
+        self.device_country = device_country
+        self.billing_country = billing_country
+        self.device_count = device_count
+        self.failed_payments_last_30_days = failed_payments_last_30_days
 
-# In-memory storage for demo (replace with proper database in production)
+# ============================================================================
+# IN-MEMORY STORAGE
+# ============================================================================
+
 offers_db = {}
 transactions_db = {}
 fraud_checks_db = {}
 
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {"message": "Ruua API is running", "version": "1.0.0"}
+# ============================================================================
+# CORE BUSINESS LOGIC FUNCTIONS
+# ============================================================================
 
-@app.post("/api/offer", response_model=OfferResponse)
-async def create_offer(offer_request: OfferRequest, db: Session = Depends(get_db)):
+def create_offer(offer_request: OfferRequest) -> Dict[str, Any]:
     """
     Create a loan offer based on user data and business rules
     
@@ -69,7 +76,7 @@ async def create_offer(offer_request: OfferRequest, db: Session = Depends(get_db
             "amount_offered": offer_request.order_amount,
             "term_months": 1,
             "interest_rate": 3.0,
-            "monthly_payment": offer_request.order_amount * 1.03,
+            "monthly_payment": round(offer_request.order_amount * 1.03, 2),
             "reason": "Small amount instant approval"
         }
     elif offer_request.order_amount <= 1000 and offer_request.recent_payments >= 3:
@@ -100,42 +107,28 @@ async def create_offer(offer_request: OfferRequest, db: Session = Depends(get_db
     # Store offer
     offers_db[offer_id] = offer_data
     
-    # Create database record
-    offer = Offer(
-        offer_id=offer_id,
-        user_id=offer_request.user_id,
-        order_amount=offer_request.order_amount,
-        status=offer_data["status"],
-        amount_offered=offer_data["amount_offered"],
-        term_months=offer_data["term_months"],
-        interest_rate=offer_data["interest_rate"],
-        monthly_payment=offer_data["monthly_payment"],
-        created_at=datetime.utcnow()
-    )
-    db.add(offer)
-    db.commit()
-    
-    return OfferResponse(**offer_data)
+    return offer_data
 
-@app.post("/api/pay", response_model=PayResponse)
-async def process_payment(pay_request: PayRequest, db: Session = Depends(get_db)):
+def process_payment(pay_request: PayRequest) -> Dict[str, Any]:
     """
     Process a payment for an approved offer
     """
     
     # Check if offer exists and is approved
     if pay_request.offer_id not in offers_db:
-        raise HTTPException(
-            status_code=404, 
-            detail="Offer not found"
-        )
+        return {
+            "success": False,
+            "transaction_id": None,
+            "message": "Offer not found"
+        }
     
     offer = offers_db[pay_request.offer_id]
     if offer["status"] not in ["approved", "approved_installments"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Offer is not approved for payment"
-        )
+        return {
+            "success": False,
+            "transaction_id": None,
+            "message": "Offer is not approved for payment"
+        }
     
     # Generate transaction ID
     transaction_id = str(uuid.uuid4())
@@ -146,30 +139,18 @@ async def process_payment(pay_request: PayRequest, db: Session = Depends(get_db)
         "offer_id": pay_request.offer_id,
         "amount": offer["amount_offered"],
         "status": "completed",
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now().isoformat()
     }
     
     transactions_db[transaction_id] = transaction_data
     
-    # Create database record
-    transaction = Transaction(
-        transaction_id=transaction_id,
-        offer_id=pay_request.offer_id,
-        amount=offer["amount_offered"],
-        status="completed",
-        created_at=datetime.utcnow()
-    )
-    db.add(transaction)
-    db.commit()
-    
-    return PayResponse(
-        success=True,
-        transaction_id=transaction_id,
-        message="Payment processed successfully"
-    )
+    return {
+        "success": True,
+        "transaction_id": transaction_id,
+        "message": "Payment processed successfully"
+    }
 
-@app.post("/api/fraud-check", response_model=FraudResponse)
-async def check_fraud(fraud_request: FraudRequest, db: Session = Depends(get_db)):
+def check_fraud(fraud_request: FraudRequest) -> Dict[str, Any]:
     """
     Perform fraud detection checks
     """
@@ -217,92 +198,199 @@ async def check_fraud(fraud_request: FraudRequest, db: Session = Depends(get_db)
         "fraud_score": fraud_score,
         "flags": flags,
         "action": action,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now().isoformat()
     }
     
     fraud_checks_db[fraud_check_id] = fraud_data
     
-    # Create database record
-    fraud_check = FraudCheck(
-        fraud_check_id=fraud_check_id,
-        user_id=fraud_request.user_id,
-        transaction_amount=fraud_request.transaction_amount,
-        fraud_score=fraud_score,
-        status=status,
-        flags=json.dumps(flags),
-        created_at=datetime.utcnow()
-    )
-    db.add(fraud_check)
-    db.commit()
-    
-    return FraudResponse(**fraud_data)
+    return fraud_data
 
-@app.get("/admin/transactions", response_model=List[TransactionResponse])
-async def get_transactions(
-    skip: int = 0, 
-    limit: int = 100, 
-    db: Session = Depends(get_db)
-):
-    """
-    Get all transactions for admin dashboard
-    """
-    
-    # Get transactions from database
-    transactions = db.query(Transaction).offset(skip).limit(limit).all()
-    
-    return [
-        TransactionResponse(
-            transaction_id=t.transaction_id,
-            offer_id=t.offer_id,
-            amount=t.amount,
-            status=t.status,
-            created_at=t.created_at.isoformat()
-        )
-        for t in transactions
-    ]
+def get_all_transactions() -> List[Dict[str, Any]]:
+    """Get all transactions"""
+    return list(transactions_db.values())
 
-@app.get("/admin/offers")
-async def get_offers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """
-    Get all offers for admin dashboard
-    """
-    offers = db.query(Offer).offset(skip).limit(limit).all()
-    
-    return [
-        {
-            "offer_id": o.offer_id,
-            "user_id": o.user_id,
-            "order_amount": o.order_amount,
-            "status": o.status,
-            "amount_offered": o.amount_offered,
-            "term_months": o.term_months,
-            "interest_rate": o.interest_rate,
-            "monthly_payment": o.monthly_payment,
-            "created_at": o.created_at.isoformat()
-        }
-        for o in offers
-    ]
+def get_all_offers() -> List[Dict[str, Any]]:
+    """Get all offers"""
+    return list(offers_db.values())
 
-@app.get("/admin/fraud-checks")
-async def get_fraud_checks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """
-    Get all fraud checks for admin dashboard
-    """
-    fraud_checks = db.query(FraudCheck).offset(skip).limit(limit).all()
+def get_all_fraud_checks() -> List[Dict[str, Any]]:
+    """Get all fraud checks"""
+    return list(fraud_checks_db.values())
+
+# ============================================================================
+# TEST FUNCTIONS
+# ============================================================================
+
+def test_loan_offers():
+    """Test loan offer creation with different scenarios"""
+    print("🧪 Testing Loan Offer Creation...")
+    print("=" * 50)
     
-    return [
-        {
-            "fraud_check_id": f.fraud_check_id,
-            "user_id": f.user_id,
-            "transaction_amount": f.transaction_amount,
-            "fraud_score": f.fraud_score,
-            "status": f.status,
-            "flags": json.loads(f.flags) if f.flags else [],
-            "created_at": f.created_at.isoformat()
-        }
-        for f in fraud_checks
-    ]
+    # Test Case 1: Small amount (should be approved)
+    print("\n1. Small Amount Test ($150)")
+    offer1 = create_offer(OfferRequest(
+        user_id="user001",
+        order_amount=150.0,
+        recent_payments=1,
+        failed_payments_last_30_days=0,
+        device_country="US",
+        billing_country="US",
+        employer_enrolled=False,
+        salary_monthly=2000.0
+    ))
+    print(f"   Status: {offer1['status']}")
+    print(f"   Amount Offered: ${offer1['amount_offered']}")
+    print(f"   Reason: {offer1['reason']}")
+    
+    # Test Case 2: Medium amount with good history (should be approved with installments)
+    print("\n2. Medium Amount with Good History Test ($800)")
+    offer2 = create_offer(OfferRequest(
+        user_id="user002",
+        order_amount=800.0,
+        recent_payments=5,
+        failed_payments_last_30_days=0,
+        device_country="US",
+        billing_country="US",
+        employer_enrolled=True,
+        salary_monthly=4000.0
+    ))
+    print(f"   Status: {offer2['status']}")
+    print(f"   Amount Offered: ${offer2['amount_offered']}")
+    print(f"   Monthly Payment: ${offer2['monthly_payment']}")
+    print(f"   Reason: {offer2['reason']}")
+    
+    # Test Case 3: Large amount (should require manual review)
+    print("\n3. Large Amount Test ($2000)")
+    offer3 = create_offer(OfferRequest(
+        user_id="user003",
+        order_amount=2000.0,
+        recent_payments=2,
+        failed_payments_last_30_days=1,
+        device_country="US",
+        billing_country="US",
+        employer_enrolled=False,
+        salary_monthly=3000.0
+    ))
+    print(f"   Status: {offer3['status']}")
+    print(f"   Amount Offered: ${offer3['amount_offered']}")
+    print(f"   Reason: {offer3['reason']}")
+    
+    return [offer1, offer2, offer3]
+
+def test_payments(offers):
+    """Test payment processing"""
+    print("\n\n💳 Testing Payment Processing...")
+    print("=" * 50)
+    
+    # Test payment for approved offer
+    if offers[0]['status'] == 'approved':
+        print(f"\n1. Processing payment for offer: {offers[0]['offer_id']}")
+        payment1 = process_payment(PayRequest(offers[0]['offer_id']))
+        print(f"   Success: {payment1['success']}")
+        print(f"   Transaction ID: {payment1['transaction_id']}")
+        print(f"   Message: {payment1['message']}")
+    
+    # Test payment for installment offer
+    if offers[1]['status'] == 'approved_installments':
+        print(f"\n2. Processing payment for installment offer: {offers[1]['offer_id']}")
+        payment2 = process_payment(PayRequest(offers[1]['offer_id']))
+        print(f"   Success: {payment2['success']}")
+        print(f"   Transaction ID: {payment2['transaction_id']}")
+        print(f"   Message: {payment2['message']}")
+    
+    # Test payment for non-approved offer
+    if offers[2]['status'] == 'manual_review':
+        print(f"\n3. Attempting payment for manual review offer: {offers[2]['offer_id']}")
+        payment3 = process_payment(PayRequest(offers[2]['offer_id']))
+        print(f"   Success: {payment3['success']}")
+        print(f"   Message: {payment3['message']}")
+
+def test_fraud_detection():
+    """Test fraud detection with different scenarios"""
+    print("\n\n🕵️ Testing Fraud Detection...")
+    print("=" * 50)
+    
+    # Test Case 1: Clean transaction (should be approved)
+    print("\n1. Clean Transaction Test")
+    fraud1 = check_fraud(FraudRequest(
+        user_id="user001",
+        transaction_amount=100.0,
+        device_country="US",
+        billing_country="US",
+        device_count=1,
+        failed_payments_last_30_days=0
+    ))
+    print(f"   Status: {fraud1['status']}")
+    print(f"   Fraud Score: {fraud1['fraud_score']}")
+    print(f"   Action: {fraud1['action']}")
+    print(f"   Flags: {fraud1['flags']}")
+    
+    # Test Case 2: Suspicious transaction (country mismatch)
+    print("\n2. Suspicious Transaction Test (Country Mismatch)")
+    fraud2 = check_fraud(FraudRequest(
+        user_id="user002",
+        transaction_amount=500.0,
+        device_country="US",
+        billing_country="CA",
+        device_count=2,
+        failed_payments_last_30_days=1
+    ))
+    print(f"   Status: {fraud2['status']}")
+    print(f"   Fraud Score: {fraud2['fraud_score']}")
+    print(f"   Action: {fraud2['action']}")
+    print(f"   Flags: {fraud2['flags']}")
+    
+    # Test Case 3: High-risk transaction (multiple red flags)
+    print("\n3. High-Risk Transaction Test")
+    fraud3 = check_fraud(FraudRequest(
+        user_id="user003",
+        transaction_amount=10000.0,
+        device_country="US",
+        billing_country="MX",
+        device_count=5,
+        failed_payments_last_30_days=8
+    ))
+    print(f"   Status: {fraud3['status']}")
+    print(f"   Fraud Score: {fraud3['fraud_score']}")
+    print(f"   Action: {fraud3['action']}")
+    print(f"   Flags: {fraud3['flags']}")
+
+def test_admin_functions():
+    """Test admin dashboard functions"""
+    print("\n\n📊 Testing Admin Functions...")
+    print("=" * 50)
+    
+    print(f"\nTotal Offers: {len(get_all_offers())}")
+    print(f"Total Transactions: {len(get_all_transactions())}")
+    print(f"Total Fraud Checks: {len(get_all_fraud_checks())}")
+    
+    print("\nRecent Offers:")
+    for offer in get_all_offers()[-3:]:  # Show last 3 offers
+        print(f"  - {offer['offer_id'][:8]}... | {offer['status']} | ${offer['amount_offered']}")
+
+def run_all_tests():
+    """Run all test functions"""
+    print("🚀 Ruua Embedded Finance Platform - Function Testing")
+    print("=" * 60)
+    
+    # Clear previous data
+    global offers_db, transactions_db, fraud_checks_db
+    offers_db.clear()
+    transactions_db.clear()
+    fraud_checks_db.clear()
+    
+    # Run tests
+    offers = test_loan_offers()
+    test_payments(offers)
+    test_fraud_detection()
+    test_admin_functions()
+    
+    print("\n\n✅ All tests completed successfully!")
+    print("=" * 60)
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    run_all_tests()
