@@ -1,0 +1,293 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Ruua API",
+    "description": "Embedded Finance Platform - Loan Offers, Payments & Fraud Detection",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Ruua Team",
+      "email": "contact@ruua.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Check if the API is running",
+        "responses": {
+          "200": {
+            "description": "API is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"},
+                    "version": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/offer": {
+      "post": {
+        "summary": "Create Loan Offer",
+        "description": "Create a loan offer based on user data and business rules",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OfferRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offer created successfully",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/OfferResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pay": {
+      "post": {
+        "summary": "Process Payment",
+        "description": "Process a payment for an approved offer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/PayRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PayResponse"}
+              }
+            }
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "400": {
+            "description": "Offer not approved for payment"
+          }
+        }
+      }
+    },
+    "/api/fraud-check": {
+      "post": {
+        "summary": "Check for Fraud",
+        "description": "Perform fraud detection checks",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/FraudRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fraud check completed",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/FraudResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/transactions": {
+      "get": {
+        "summary": "Get All Transactions",
+        "description": "Get all transactions for admin dashboard",
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "schema": {"type": "integer", "default": 0},
+            "description": "Number of records to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100},
+            "description": "Maximum number of records to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/TransactionResponse"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/offers": {
+      "get": {
+        "summary": "Get All Offers",
+        "description": "Get all offers for admin dashboard",
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "schema": {"type": "integer", "default": 0}
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/OfferResponse"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/fraud-checks": {
+      "get": {
+        "summary": "Get All Fraud Checks",
+        "description": "Get all fraud checks for admin dashboard",
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "schema": {"type": "integer", "default": 0}
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of fraud checks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/FraudResponse"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "OfferRequest": {
+        "type": "object",
+        "required": ["user_id", "order_amount", "recent_payments", "failed_payments_last_30_days", "device_country", "billing_country", "employer_enrolled"],
+        "properties": {
+          "user_id": {"type": "string", "description": "Unique user identifier"},
+          "order_amount": {"type": "number", "minimum": 0, "description": "Order amount in local currency"},
+          "recent_payments": {"type": "integer", "minimum": 0, "description": "Number of recent successful payments"},
+          "failed_payments_last_30_days": {"type": "integer", "minimum": 0, "description": "Failed payments in last 30 days"},
+          "device_country": {"type": "string", "description": "Country where device is located"},
+          "billing_country": {"type": "string", "description": "Country for billing address"},
+          "employer_enrolled": {"type": "boolean", "description": "Whether employer is enrolled in salary deduction"},
+          "salary_monthly": {"type": "number", "minimum": 0, "description": "Monthly salary amount"}
+        }
+      },
+      "OfferResponse": {
+        "type": "object",
+        "properties": {
+          "offer_id": {"type": "string", "description": "Unique offer identifier"},
+          "status": {"type": "string", "enum": ["approved", "approved_installments", "manual_review"], "description": "Offer status"},
+          "amount_offered": {"type": "number", "description": "Amount offered for loan"},
+          "term_months": {"type": "integer", "description": "Loan term in months"},
+          "interest_rate": {"type": "number", "description": "Annual interest rate percentage"},
+          "monthly_payment": {"type": "number", "description": "Monthly payment amount"},
+          "reason": {"type": "string", "description": "Reason for offer decision"}
+        }
+      },
+      "PayRequest": {
+        "type": "object",
+        "required": ["offer_id"],
+        "properties": {
+          "offer_id": {"type": "string", "description": "Offer ID to process payment for"}
+        }
+      },
+      "PayResponse": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean", "description": "Whether payment was successful"},
+          "transaction_id": {"type": "string", "description": "Unique transaction identifier"},
+          "message": {"type": "string", "description": "Payment processing message"}
+        }
+      },
+      "FraudRequest": {
+        "type": "object",
+        "required": ["user_id", "transaction_amount", "device_country", "billing_country", "device_count", "failed_payments_last_30_days"],
+        "properties": {
+          "user_id": {"type": "string", "description": "User identifier"},
+          "transaction_amount": {"type": "number", "minimum": 0, "description": "Transaction amount"},
+          "device_country": {"type": "string", "description": "Device country"},
+          "billing_country": {"type": "string", "description": "Billing country"},
+          "device_count": {"type": "integer", "minimum": 1, "description": "Number of devices used by user"},
+          "failed_payments_last_30_days": {"type": "integer", "minimum": 0, "description": "Failed payments in last 30 days"}
+        }
+      },
+      "FraudResponse": {
+        "type": "object",
+        "properties": {
+          "fraud_check_id": {"type": "string", "description": "Unique fraud check identifier"},
+          "status": {"type": "string", "enum": ["approved", "suspicious", "flagged"], "description": "Fraud status"},
+          "fraud_score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "Fraud risk score (0-100)"},
+          "flags": {"type": "array", "items": {"type": "string"}, "description": "List of fraud flags raised"},
+          "action": {"type": "string", "enum": ["allow", "review", "block"], "description": "Recommended action"},
+          "created_at": {"type": "string", "format": "date-time", "description": "Timestamp of fraud check"}
+        }
+      },
+      "TransactionResponse": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {"type": "string", "description": "Unique transaction identifier"},
+          "offer_id": {"type": "string", "description": "Associated offer ID"},
+          "amount": {"type": "number", "description": "Transaction amount"},
+          "status": {"type": "string", "description": "Transaction status"},
+          "created_at": {"type": "string", "format": "date-time", "description": "Transaction timestamp"}
+        }
+      }
+    }
+  }
+}
